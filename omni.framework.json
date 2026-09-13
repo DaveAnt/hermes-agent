@@ -1,0 +1,42 @@
+{
+  "id": "hermes-agent",
+  "name": "Hermes Agent",
+  "version": "0.20.1",
+  "icon": "🧠",
+  "description": "NousResearch Hermes Agent —— 全功能自主任务执行框架（终端/文件工具、技能、记忆、定时任务）。适合做真实开发任务，例如“在桌面开发一个小游戏”。",
+  "adapter": "openai-gateway",
+  "capabilities": {
+    "streaming": true,
+    "tools": true,
+    "tasks": true
+  },
+  "gateway": {
+    "baseUrl": "http://127.0.0.1:8642",
+    "apiKey": "feishu-gw-K9mQ7xL4vB8nR1tZ",
+    "chatPath": "/v1/chat/completions",
+    "healthPath": "/health",
+    "modelsPath": "/v1/models"
+  },
+  "launch": {
+    "command": ".venv/Scripts/python.exe",
+    "args": ["cli.py", "--gateway"],
+    "cwd": ".",
+    "readyTimeoutMs": 120000,
+    "env": {
+      "HERMES_HOME": "hermes-home",
+      "API_SERVER_PORT": "8642",
+      "API_SERVER_KEY": "feishu-gw-K9mQ7xL4vB8nR1tZ",
+      "HERMES_YOLO_MODE": "1",
+      "GATEWAY_MULTIPLEX_PROFILES": "1",
+      "TERMINAL_CWD": "../../workspace",
+      "TMP": "../../workspace/temp",
+      "TEMP": "../../workspace/temp"
+    }
+  },
+  "modelRoutes": {
+    "configFile": "hermes-home/config.yaml",
+    "path": ["gateway", "api_server", "extra", "model_routes"],
+    "aliasPrefix": "omni-",
+    "restartOnChange": true
+  }
+}

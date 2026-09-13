@@ -4,6 +4,8 @@
 /venv.stale.runtime-*/
 /.hermes-runtime/
 /_pycache/
+/temp/
+/workspace/
 *.pyc*
 __pycache__/
 act/
@@ -205,3 +207,6 @@ native/fts5_cjk/*.so
 # interrupted; consumed by launch-time recovery. Never commit it (was tracked
 # by accident via 3a69e34702, removed in the #72002 salvage).
 .lazy-refresh-incomplete
+
+# OmniTeam 本地集成文件（凭据与机器相关，勿提交）
+feishu.env

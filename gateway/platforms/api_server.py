@@ -2783,6 +2783,7 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_progress_callback=None,
         tool_start_callback=None,
         tool_complete_callback=None,
+        reasoning_callback=None,
         gateway_session_key: Optional[str] = None,
         requested_model: Optional[str] = None,
         requested_provider: Optional[str] = None,
@@ -3096,6 +3097,7 @@ class APIServerAdapter(BasePlatformAdapter):
             "tool_progress_callback": tool_progress_callback,
             "tool_start_callback": tool_start_callback,
             "tool_complete_callback": tool_complete_callback,
+            "reasoning_callback": reasoning_callback,
             "session_db": self._ensure_session_db(),
             "fallback_model": fallback_model,
             "reasoning_config": reasoning_config,
@@ -5182,6 +5184,18 @@ class APIServerAdapter(BasePlatformAdapter):
             # side-by-side with ``tool_start_callback``/``tool_complete_callback``.
             # The structured callbacks are strictly richer (they carry
             # the tool_call id), so they own the chat-completions SSE channel.
+            #
+            # ``reasoning_callback`` forwards the model's deep-think deltas
+            # as ``hermes.reasoning.delta`` SSE events so clients (e.g. the
+            # FeishuBot card) can display live reasoning. No dedicated
+            # structured callback exists on the agent for this — reasoning
+            # has only this one channel.
+            def _on_reasoning_delta(reasoning_text):
+                if reasoning_text:
+                    _stream_q.put_threadsafe(("__reasoning_delta__", {
+                        "delta": reasoning_text,
+                    }))
+
             agent_ref = [None]
             agent_task = asyncio.ensure_future(self._run_agent(
                 user_message=user_message,
@@ -5191,6 +5205,7 @@ class APIServerAdapter(BasePlatformAdapter):
                 stream_delta_callback=_on_delta,
                 tool_start_callback=_on_tool_start,
                 tool_complete_callback=_on_tool_complete,
+                reasoning_callback=_on_reasoning_delta,
                 agent_ref=agent_ref,
                 gateway_session_key=gateway_session_key,
                 **agent_overrides,
@@ -5376,6 +5391,8 @@ class APIServerAdapter(BasePlatformAdapter):
                 """
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == "__tool_progress__":
                     await response.write(_sse_frame(item[1], event="hermes.tool.progress"))
+                elif isinstance(item, tuple) and len(item) == 2 and item[0] == "__reasoning_delta__":
+                    await response.write(_sse_frame(item[1], event="hermes.reasoning.delta"))
                 else:
                     content_chunk = {
                         "id": completion_id, "object": "chat.completion.chunk",
@@ -5461,6 +5478,9 @@ class APIServerAdapter(BasePlatformAdapter):
                     "prompt_tokens": usage.get("input_tokens", 0),
                     "completion_tokens": usage.get("output_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
+                    "prompt_tokens_cache_read": usage.get("cache_read_tokens", 0),
+                    "prompt_tokens_cache_write": usage.get("cache_write_tokens", 0),
+                    "context_length": usage.get("context_length", 0),
                 },
             }
             if finish_reason != "stop":
@@ -7130,6 +7150,7 @@ class APIServerAdapter(BasePlatformAdapter):
         tool_progress_callback=None,
         tool_start_callback=None,
         tool_complete_callback=None,
+        reasoning_callback=None,
         agent_ref: Optional[list] = None,
         active_run_id: Optional[str] = None,
         gateway_session_key: Optional[str] = None,
@@ -7205,6 +7226,7 @@ class APIServerAdapter(BasePlatformAdapter):
                         tool_progress_callback=tool_progress_callback,
                         tool_start_callback=tool_start_callback,
                         tool_complete_callback=tool_complete_callback,
+                        reasoning_callback=reasoning_callback,
                         gateway_session_key=gateway_session_key,
                         requested_model=requested_model,
                         requested_provider=requested_provider,
@@ -7240,6 +7262,12 @@ class APIServerAdapter(BasePlatformAdapter):
                         "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
                         "output_tokens": getattr(agent, "session_completion_tokens", 0) or 0,
                         "total_tokens": getattr(agent, "session_total_tokens", 0) or 0,
+                        "cache_read_tokens": getattr(agent, "session_cache_read_tokens", 0) or 0,
+                        "cache_write_tokens": getattr(agent, "session_cache_write_tokens", 0) or 0,
+                        "context_length": (
+                            getattr(getattr(agent, "context_compressor", None), "context_length", 0)
+                            or 0
+                        ),
                     }
                     # Include the effective session ID in the result so callers
                     # (e.g. X-Hermes-Session-Id header) can track compression-
@@ -7350,7 +7378,11 @@ class APIServerAdapter(BasePlatformAdapter):
                             "api_calls": 0,
                             "tools": [],
                         },
-                        {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+                        {
+                            "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
+                            "cache_read_tokens": 0, "cache_write_tokens": 0,
+                            "context_length": 0,
+                        },
                     )
                 finally:
                     # Turn finished (success, auth failure, or crash) — clear
@@ -7765,6 +7797,12 @@ class APIServerAdapter(BasePlatformAdapter):
                             "input_tokens": getattr(agent, "session_prompt_tokens", 0) or 0,
                             "output_tokens": getattr(agent, "session_completion_tokens", 0) or 0,
                             "total_tokens": getattr(agent, "session_total_tokens", 0) or 0,
+                            "cache_read_tokens": getattr(agent, "session_cache_read_tokens", 0) or 0,
+                            "cache_write_tokens": getattr(agent, "session_cache_write_tokens", 0) or 0,
+                            "context_length": (
+                                getattr(getattr(agent, "context_compressor", None), "context_length", 0)
+                                or 0
+                            ),
                         }
                         return r, u
 
