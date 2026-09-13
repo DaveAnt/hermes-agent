@@ -227,6 +227,10 @@ native/fts5_cjk/*.so
 # OmniTeam 本地集成文件（凭据与机器相关，勿提交）
 feishu.env
 
+# 本仓库内的运行时 home（config.yaml 含凭据、缓存/锁/频道状态等）；上游通用模式
+# `hermes-*/*` 恰好覆盖，但显式声明可防止该模式将来被收紧时误入库。
+hermes-home/
+
 .skills_prompt_snapshot.json
 
 # Disposable profile created by scripts/probe_active_session_exclusivity.py
