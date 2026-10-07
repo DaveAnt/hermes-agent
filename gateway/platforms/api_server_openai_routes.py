@@ -561,6 +561,17 @@ class OpenAICompatRoutesMixin:
             # filtered tools) is dropped rather than orphaned on the wire.
             _started_tool_call_ids: set[str] = set()
 
+            def _preview_tool_result(result, limit: int = 600) -> str:
+                """One-line preview of a tool result for live UIs (best-effort, additive field)."""
+                try:
+                    if result is None:
+                        return ""
+                    text = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, default=str)
+                    text = " ".join(text.split())
+                    return text[:limit] + ("…" if len(text) > limit else "")
+                except Exception:
+                    return ""
+
             def _on_tool_start(tool_call_id, function_name, function_args):
                 """``hermes.tool.progress`` status=running; ``_``-prefixed tools stay off the wire."""
                 if not tool_call_id or function_name.startswith("_"):
@@ -576,8 +587,11 @@ class OpenAICompatRoutesMixin:
                 if not tool_call_id or tool_call_id not in _started_tool_call_ids:
                     return
                 _started_tool_call_ids.discard(tool_call_id)
-                _stream_q.put_threadsafe(("__tool_progress__", {
-                    "tool": function_name, "toolCallId": tool_call_id, "status": "completed"}))
+                frame = {"tool": function_name, "toolCallId": tool_call_id, "status": "completed"}
+                preview = _preview_tool_result(function_result)
+                if preview:
+                    frame["resultPreview"] = preview  # additive field; old consumers ignore it
+                _stream_q.put_threadsafe(("__tool_progress__", frame))
 
             # tool_progress_callback deliberately NOT wired: it would duplicate the structured
             # start/complete callbacks (which carry the tool_call id).
