@@ -21,7 +21,7 @@
     "command": ".venv/Scripts/python.exe",
     "args": ["cli.py", "--gateway"],
     "cwd": ".",
-    "readyTimeoutMs": 120000,
+    "readyTimeoutMs": 240000,
     "env": {
       "HERMES_HOME": "hermes-home",
       "API_SERVER_PORT": "8642",
