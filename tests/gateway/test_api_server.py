@@ -1337,6 +1337,63 @@ class TestChatCompletionsEndpoint:
             assert pairs[1] == ("completed", "call_terminal_1"), pairs
 
     @pytest.mark.asyncio
+    async def test_stream_tool_start_carries_structured_input(self, adapter):
+        """OmniHub E2E regression: the running frame must carry the structured
+        tool arguments (``input``), not just the lossy ``label`` preview —
+        downstream file-activity / diff / deliverable rendering reads input."""
+        import asyncio
+        import json as _json
+
+        app = _create_app(adapter)
+        async with TestClient(TestServer(app)) as cli:
+            async def _mock_run_agent(**kwargs):
+                cb = kwargs.get("stream_delta_callback")
+                ts_cb = kwargs.get("tool_start_callback")
+                tc_cb = kwargs.get("tool_complete_callback")
+                if ts_cb:
+                    ts_cb("call_w", "write_file", {"path": "a.html", "content": "<h1>x</h1>"})
+                    ts_cb("call_t", "terminal", {"command": "pwd"})
+                if tc_cb:
+                    tc_cb("call_w", "write_file", {}, "ok")
+                    tc_cb("call_t", "terminal", {}, "ok")
+                if cb:
+                    await asyncio.sleep(0.05)
+                    cb("done.")
+                return (
+                    {"final_response": "done.", "messages": [], "api_calls": 1},
+                    {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                )
+
+            with patch.object(adapter, "_run_agent", side_effect=_mock_run_agent):
+                resp = await cli.post(
+                    "/v1/chat/completions",
+                    json={
+                        "model": "test",
+                        "messages": [{"role": "user", "content": "write"}],
+                        "stream": True,
+                    },
+                )
+                assert resp.status == 200
+                body = await resp.text()
+
+            running = {}
+            lines = body.splitlines()
+            for i, line in enumerate(lines):
+                if line.strip() != "event: hermes.tool.progress":
+                    continue
+                for follow in lines[i + 1: i + 4]:
+                    if follow.startswith("data: "):
+                        try:
+                            payload = _json.loads(follow[len("data: "):])
+                        except _json.JSONDecodeError:
+                            break
+                        if payload.get("status") == "running":
+                            running[payload.get("toolCallId")] = payload
+                        break
+            assert running["call_w"]["input"] == {"path": "a.html", "content": "<h1>x</h1>"}
+            assert running["call_t"]["input"] == {"command": "pwd"}
+
+    @pytest.mark.asyncio
     async def test_stream_tool_lifecycle_skips_internal_and_orphan_completes(self, adapter):
         """Internal tools (``_thinking``-style) and ``completed`` events
         without a prior matching ``running`` must produce no lifecycle

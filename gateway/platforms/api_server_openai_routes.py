@@ -977,9 +977,20 @@ class OpenAICompatRoutesMixin:
                 _started_tool_call_ids.add(tool_call_id)
                 from agent.display import build_tool_preview, get_tool_emoji
                 label = build_tool_preview(function_name, function_args) or function_name
-                _stream_q.put_threadsafe(("__tool_progress__", {
+                frame = {
                     "tool": function_name, "emoji": get_tool_emoji(function_name), "label": label,
-                    "toolCallId": tool_call_id, "status": "running"}))
+                    "toolCallId": tool_call_id, "status": "running"}
+                # Additive field: structured tool arguments so consumers can render file
+                # activity / diffs / deliverables (label alone is a lossy preview).
+                args = function_args
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = None
+                if isinstance(args, dict) and args:
+                    frame["input"] = args
+                _stream_q.put_threadsafe(("__tool_progress__", frame))
 
             def _on_tool_complete(tool_call_id, function_name, function_args, function_result):
                 if not tool_call_id or tool_call_id not in _started_tool_call_ids:
